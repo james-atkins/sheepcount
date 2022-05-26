@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -124,7 +125,7 @@ func main() {
 	cmd.PersistentFlags().IntVar(&port, "port", 4444, "Port to listen on")
 	cmd.PersistentFlags().StringVar(&socket, "socket", "", "Socket to listen on")
 
-	if err := cmd.Execute(); err != nil && err != context.Canceled {
+	if err := cmd.Execute(); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("%+v", err)
 	}
 }
