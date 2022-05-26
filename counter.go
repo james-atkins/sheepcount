@@ -185,8 +185,7 @@ func personalisedJS(env *SheepCount, ident Identifier) ([]byte, JsHash, error) {
 }
 
 func servePersonalisedJS(env *SheepCount, w http.ResponseWriter, ident Identifier, js []byte, jsHash JsHash) {
-	// w.Header().Set("Cache-Control", "private, max-age=3600")
-	w.Header().Set("Cache-Control", "private, must-revalidate")
+	w.Header().Set("Cache-Control", "private, max-age=3600, must-revalidate")
 
 	w.Header().Set("ETag", encodeETag(env.Key, ident, jsHash))
 	w.Header().Set("Content-Type", "application/javascript")
