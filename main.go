@@ -91,7 +91,20 @@ func main() {
 
 			var l net.Listener
 			if socket != "" {
+				// Delete the socket first
+				_ = os.Remove(socket)
+
 				l, err = net.Listen("unix", socket)
+				if err != nil {
+					return err
+				}
+
+				// Restrict access to socket
+				err = os.Chmod(socket, 0700)
+				if err != nil {
+					return err
+				}
+
 				env.AllowLocalhost = false
 				env.ReverseProxy = true
 			} else {
