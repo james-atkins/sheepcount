@@ -102,7 +102,11 @@ func main() {
 				return err
 			}
 
-			return main2(ctx, env, l)
+			if err := main2(ctx, env, l); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("%+v", err)
+			}
+
+			return nil
 		},
 		PostRun: func(cmd *cobra.Command, args []string) {
 			if err := geo.Close(); err != nil {
@@ -125,9 +129,7 @@ func main() {
 	cmd.PersistentFlags().IntVar(&port, "port", 4444, "Port to listen on")
 	cmd.PersistentFlags().StringVar(&socket, "socket", "", "Socket to listen on")
 
-	if err := cmd.Execute(); err != nil && !errors.Is(err, context.Canceled) {
-		log.Printf("%+v", err)
-	}
+	cmd.Execute()
 }
 
 func main2(ctx context.Context, env *SheepCount, socket net.Listener) error {
