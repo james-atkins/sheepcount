@@ -86,7 +86,7 @@ func main() {
 			if err != nil {
 				return err
 			}
-			env.Domains = []string{"jdsa3.srcf.net", "www.jamesatkins.net"}
+			env.Domains = []string{"jdsa3.user.srcf.net", "www.jamesatkins.net"}
 			env.Key = key
 
 			var l net.Listener
