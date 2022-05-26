@@ -215,7 +215,7 @@ func (hit *Hit) setLocation(db *geoip2.Reader, ip net.IP) Error {
 	// Maxmind can provide multiple levels of country subdivision, for example for the UK where it
 	// might provide England and then the shire county. But I don't think this is available using
 	// the free GeoLite2 databases. So just grab the first subdivision if it is available.
-	if len(record.Subdivisions) > 1 {
+	if len(record.Subdivisions) > 0 {
 		if subdivision := record.Subdivisions[0].IsoCode; subdivision != "" {
 			hit.Subdivision = sql.NullString{String: subdivision, Valid: true}
 		}
