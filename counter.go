@@ -164,7 +164,7 @@ func personalisedJS(env *SheepCount, ident Identifier) ([]byte, JsHash, error) {
 		Token          string
 	}{
 		AllowLocalhost: env.AllowLocalhost,
-		Url:            "/event",
+		Url:            "//jdsa3.user.srcf.net/event",
 		Token:          encodeToken(env.Key, ident),
 	}
 
