@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/oschwald/geoip2-golang"
@@ -23,7 +24,7 @@ func main() {
 
 	// Exit on Ctrl-C
 	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 
 	defer func() {
 		signal.Stop(signalChan)
