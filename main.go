@@ -137,7 +137,7 @@ func main2(ctx context.Context, env *SheepCount, socket net.Listener) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
+		if !(r.URL.Path == "/" || r.URL.Path == "/index.html") {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
