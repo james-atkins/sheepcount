@@ -180,6 +180,8 @@ func main2(ctx context.Context, env *SheepCount, socket net.Listener) error {
 			return
 		}
 
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
 		if err := handleCount(env, r); err != nil {
 			w.WriteHeader(err.StatusCode())
 			log.Print(err)
