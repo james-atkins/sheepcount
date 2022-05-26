@@ -234,7 +234,7 @@ func main2(ctx context.Context, env *SheepCount, socket net.Listener) error {
 				return ctx.Err()
 
 			case <-ticker.C:
-				n, err := DeleteExpired(ctx, 24*time.Hour, env.Db)
+				n, err := DeleteExpired(ctx, 730*24*time.Hour, env.Db)
 				if err != nil {
 					return fmt.Errorf("cannot delete expired identifiers: %w", err)
 				}
