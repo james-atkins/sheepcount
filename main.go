@@ -93,7 +93,10 @@ func main() {
 			var l net.Listener
 			if socket != "" {
 				// Delete the socket first
-				_ = os.Remove(socket)
+				err = os.Remove(socket)
+				if err != nil && !os.IsNotExist(err) {
+					return err
+				}
 
 				l, err = net.Listen("unix", socket)
 				if err != nil {
