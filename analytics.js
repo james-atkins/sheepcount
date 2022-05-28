@@ -39,7 +39,7 @@
         var xhr = new XMLHttpRequest();
         xhr.open("POST", url, true);
         xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status !== 200) {
+            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status !== 204) {
                 console.log(xhr.statusText);
             }
         };
