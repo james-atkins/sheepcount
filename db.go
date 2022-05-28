@@ -14,7 +14,7 @@ import (
 var dbFs embed.FS
 
 func dbConnect(path string) (*sql.DB, error) {
-	uri := fmt.Sprintf("%s?_foreign_keys=true&_journal=WAL&__secure_delete=true&_busy_timeout=5000", path)
+	uri := fmt.Sprintf("%s?_foreign_keys=true&_journal=WAL&_synchronous=NORMAL&__secure_delete=true&_busy_timeout=5000", path)
 
 	db, err := sql.Open("sqlite3", uri)
 	if err != nil {
