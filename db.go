@@ -83,7 +83,7 @@ func dbInsertHit(ctx context.Context, tx *sql.Tx, hit *Hit) error {
 	// Referrer
 	var referrerId sql.NullInt64
 	if hit.ReferrerDomain.Valid {
-		row := tx.QueryRowContext(ctx, "SELECT referrer_id FROM referrers WHERE domain = ? AND path = ?", hit.ReferrerDomain, hit.ReferrerPath)
+		row := tx.QueryRowContext(ctx, "SELECT referrer_id FROM referrers WHERE domain = ? AND path IS ?", hit.ReferrerDomain, hit.ReferrerPath)
 		err := row.Scan(&referrerId)
 		if err != nil {
 			if err != sql.ErrNoRows {
