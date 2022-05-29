@@ -91,34 +91,44 @@ func TestInsertLocation(t *testing.T) {
 	assert.Equal(t, validId(12), getOrInsertId(location("CA", "Ontario", "London", "")))
 	assert.Equal(t, validId(14), getOrInsertId(location("AI", "", "The Valley", "")))
 
-	// // Now let's insert some new locations
-	// id := getOrInsertId(location("GB", "NIR", "", ""))
-	// row := tx.QueryRowContext(ctx, "SELECT location_id, parent_id, name FROM locations WHERE location_id = ?", id)
+	// Now let's insert some new locations
 
-	// var (
-	// 	locationId int64
-	// 	parentId   int64
-	// 	name       string
-	// )
+	// INSERT INTO locations (parent_id, subdivision) VALUES (1, 'NIR');       -- 15
+	assert.Equal(t, validId(15), getOrInsertId(location("GB", "NIR", "", "")))
 
-	// if err := row.Scan(&locationId, &parentId, &name); err != nil {
-	// 	t.Fatal(err)
-	// }
+	// INSERT INTO locations (parent_id, city) VALUES (15, 'Belfast');         -- 16
+	// INSERT INTO locations (parent_id, postal) VALUES (16, 'BT4');           -- 17
+	assert.Equal(t, validId(17), getOrInsertId(location("GB", "NIR", "Belfast", "BT4")))
 
-	// assert.Equal(t, int64(13), locationId)
-	// assert.Equal(t, int64(1), parentId)
-	// assert.Equal(t, "NIR", name)
+	assert.Equal(t, validId(16), getOrInsertId(location("GB", "NIR", "Belfast", "")))
 
-	// id = getOrInsertId(location("GB", "WLS", "Cardiff", "CF99"))
-	// row = tx.QueryRowContext(ctx, "SELECT location_id, parent_id, name FROM locations WHERE location_id = ?", id)
+	// INSERT INTO locations (parent_id, postal) VALUES (16, 'BT15');          -- 18
+	assert.Equal(t, validId(18), getOrInsertId(location("GB", "NIR", "Belfast", "BT15")))
 
-	// if err := row.Scan(&locationId, &parentId, &name); err != nil {
-	// 	t.Fatal(err)
-	// }
+	// INSERT INTO locations (country) VALUES ('US');                          -- 19
+	// INSERT INTO locations (parent_id, subdivision) VALUES (19, 'IL');       -- 20
+	// INSERT INTO locations (parent_id, city) VALUES (20, 'Chicago');         -- 21
+	// INSERT INTO locations (parent_id, postal) VALUES (21, '60208');         -- 22
+	assert.Equal(t, validId(22), getOrInsertId(location("US", "IL", "Chicago", "60208")))
 
-	// assert.Equal(t, int64(16), locationId)
-	// assert.Equal(t, int64(15), parentId)
-	// assert.Equal(t, "CF99", name)
+	assert.Equal(t, validId(19), getOrInsertId(location("US", "", "", "")))
+	assert.Equal(t, validId(20), getOrInsertId(location("US", "IL", "", "")))
+	assert.Equal(t, validId(21), getOrInsertId(location("US", "IL", "Chicago", "")))
 
-	// It's probably easier to verify everything at the end using a big SQL query...
+	// INSERT INTO locations (parent_id, city) VALUES (20, 'Springfield');     -- 23
+	assert.Equal(t, validId(23), getOrInsertId(location("US", "IL", "Springfield", "")))
+
+	// INSERT INTO locations (parent_id, postal) VALUES (23, 'Springfield');   -- 24
+	assert.Equal(t, validId(24), getOrInsertId(location("US", "IL", "Springfield", "62701")))
+
+	// INSERT INTO locations (parent_id, city) VALUES (13, 'White Hill');      -- 25
+	assert.Equal(t, validId(25), getOrInsertId(location("AI", "", "White Hill", "")))
+
+	// INSERT INTO locations (country) VALUES ('FR');                          -- 26
+	assert.Equal(t, validId(26), getOrInsertId(location("FR", "", "", "")))
+
+	// INSERT INTO locations (parent_id, subdivision) VALUES (26, 'IDF');      -- 27
+	// INSERT INTO locations (parent_id, city) VALUES (27, 'Paris');           -- 28
+	assert.Equal(t, validId(28), getOrInsertId(location("FR", "IDF", "Paris", "")))
+	assert.Equal(t, validId(27), getOrInsertId(location("FR", "IDF", "", "")))
 }
