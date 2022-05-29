@@ -120,7 +120,7 @@ func dbInsertHit(ctx context.Context, tx *sql.Tx, hit *Hit) error {
 
 	// Display
 	var displayId sql.NullInt64
-	if hit.ScreenHeight.Valid {
+	if hit.ScreenHeight.Valid && hit.ScreenWidth.Valid && hit.PixelRatio.Valid {
 		row := tx.QueryRowContext(
 			ctx,
 			"SELECT display_id FROM displays WHERE screen_height = ? AND screen_width = ? AND pixel_ratio = ?",
