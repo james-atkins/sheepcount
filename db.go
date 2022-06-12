@@ -5,13 +5,115 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"log"
+	"time"
 
+	"golang.org/x/sync/errgroup"
 	"zgo.at/gadget"
 	"zgo.at/isbot"
 )
 
 //go:embed db/*.sql
 var dbFs embed.FS
+
+func DatabaseWriter(ctx context.Context, db *sql.DB, hitC <-chan Hit) error {
+	errgrp, ctx := errgroup.WithContext(ctx)
+
+	// Writing each hit one-by-one can be slow. So instead, batch them and then
+	// write the whole batch to the database.
+	// This functions creates two goroutines. The first reads individual hits from
+	// the channel and then batches them into a slice. Once the slice is big enough
+	// or the elapsed time has passed, then the goroutine sends the slice to the
+	// batched channel and the second goroutine then commits the whole slice to the
+	// database.
+	hitsC := make(chan []Hit)
+
+	errgrp.Go(func() error {
+		ticker := time.NewTicker(10 * time.Second)
+		var hits []Hit
+
+		for {
+			select {
+			case <-ctx.Done():
+				// Before shutting down, make sure that we submit any remaining hits
+				// to the database writer goroutine.
+				if len(hits) > 0 {
+					hitsC <- hits
+				}
+
+				// Signal to the database writer goroutine that we are shutting down
+				close(hitsC)
+				return ctx.Err()
+
+			case <-ticker.C:
+				if len(hits) == 0 {
+					continue
+				}
+				hitsC <- hits
+				hits = make([]Hit, 0, 16)
+
+			case hit := <-hitC:
+				hits = append(hits, hit)
+				if len(hits) >= 256 {
+					hitsC <- hits
+					hits = make([]Hit, 0, 16)
+				}
+			}
+		}
+	})
+
+	errgrp.Go(func() error {
+		// Grab a connection from the pool and keep it for the whole life of the goroutine
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		// TODO: prepared statements
+
+		// When ctx.Done() closes, the above goroutine sends any remaining batched hits
+		// to the channel and then closes it. So there is no need to select on ctx.Done()
+		// here too.
+		for hits := range hitsC {
+			err := func() error {
+				tx, err := conn.BeginTx(ctx, nil)
+				if err != nil {
+					return err
+				}
+				defer tx.Rollback()
+
+				// In WAL mode, if we start a transaction and run a SELECT followed by an INSERT, SQLite will
+				// immediately report a locked database error if there is already another write transaction.
+				// As we know that we are going to insert data, let's always start the transaction in IMMEDIATE
+				// mode. This works around this known bug: https://github.com/mattn/go-sqlite3/issues/400.
+				if _, err := tx.ExecContext(ctx, "ROLLBACK; BEGIN IMMEDIATE"); err != nil {
+					return err
+				}
+
+				for _, hit := range hits {
+					if err := dbInsertHit(ctx, tx, &hit); err != nil {
+						return err
+					}
+				}
+
+				if err := tx.Commit(); err != nil {
+					return err
+				}
+
+				return nil
+			}()
+
+			if err != nil {
+				log.Print(err)
+			}
+		}
+
+		return nil
+	})
+
+	return errgrp.Wait()
+}
 
 func dbConnect(path string) (*sql.DB, error) {
 	uri := fmt.Sprintf("%s?_foreign_keys=true&_journal=WAL&_synchronous=NORMAL&__secure_delete=true&_busy_timeout=5000", path)
@@ -149,7 +251,8 @@ func dbInsertHit(ctx context.Context, tx *sql.Tx, hit *Hit) error {
 
 	_, err = tx.ExecContext(
 		ctx,
-		`INSERT INTO hits ( event
+		`INSERT INTO hits ( timestamp
+			              , event
 			              , user_id
 			              , user_agent_id
 						  , bot
@@ -158,7 +261,8 @@ func dbInsertHit(ctx context.Context, tx *sql.Tx, hit *Hit) error {
 						  , location_id
 						  , language_id
 						  , display_id )
-		VALUES ( :event
+		VALUES ( :timestamp
+			   , :event
 			   , :user_id
 			   , :user_agent_id
 			   , :bot
@@ -167,6 +271,7 @@ func dbInsertHit(ctx context.Context, tx *sql.Tx, hit *Hit) error {
 			   , :location_id
 			   , :language_id
 			   , :display_id )`,
+		sql.Named("timestamp", hit.Timestamp),
 		sql.Named("event", hit.Event),
 		sql.Named("user_id", userId),
 		sql.Named("user_agent_id", userAgentId),

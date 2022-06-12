@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/oschwald/geoip2-golang"
 	"golang.org/x/text/language"
@@ -62,6 +63,7 @@ type Event struct {
 
 // Unnormalised data
 type Hit struct {
+	Timestamp  int64
 	Identifier Identifier
 	UserAgent  string
 	Bot        sql.NullInt16
@@ -101,6 +103,8 @@ func (hit *Hit) FromEndpoint(env *SheepCount, r *http.Request) Error {
 	}
 
 	hit.Identifier = ident
+
+	hit.Timestamp = time.Now().Unix()
 
 	if err := hit.fromRequest(env, r); err != nil {
 		return err

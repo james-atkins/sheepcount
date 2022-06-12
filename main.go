@@ -228,6 +228,10 @@ func main2(ctx context.Context, env *SheepCount, socket net.Listener) error {
 	})
 
 	errgrp.Go(func() error {
+		return DatabaseWriter(ctx, env.Db, env.Hits)
+	})
+
+	errgrp.Go(func() error {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 

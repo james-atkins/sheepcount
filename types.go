@@ -17,6 +17,7 @@ type SheepCount struct {
 	Db   *sql.DB
 	Geo  *geoip2.Reader
 	Tmpl *template.Template
+	Hits chan Hit
 
 	// Config
 	Domains        []string
@@ -32,10 +33,10 @@ func NewSheepCount(db *sql.DB, geo *geoip2.Reader) (*SheepCount, error) {
 	}
 
 	env := &SheepCount{
-		Db:             db,
-		Geo:            geo,
-		Tmpl:           tmpl,
-		AllowLocalhost: true,
+		Db:   db,
+		Geo:  geo,
+		Tmpl: tmpl,
+		Hits: make(chan Hit),
 	}
 
 	return env, nil

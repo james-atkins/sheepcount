@@ -21,29 +21,12 @@ func handleCount(env *SheepCount, r *http.Request) Error {
 
 	ctx := r.Context()
 
-	tx, err := env.Db.BeginTx(ctx, nil)
-	if err != nil {
-		return NewInternalError(err)
+	select {
+	case <-ctx.Done():
+		return NewInternalError(ctx.Err())
+	case env.Hits <- hit:
+		return nil
 	}
-	defer tx.Rollback()
-
-	// In WAL mode, if we start a transaction and run a SELECT followed by an INSERT, SQLite will
-	// immediately report a locked database error if there is already another write transaction.
-	// As we know that we are going to insert data, let's always start the transaction in IMMEDIATE
-	// mode. This works around this known bug: https://github.com/mattn/go-sqlite3/issues/400.
-	if _, err := tx.ExecContext(ctx, "ROLLBACK; BEGIN IMMEDIATE"); err != nil {
-		return NewInternalError(err)
-	}
-
-	if err := dbInsertHit(ctx, tx, &hit); err != nil {
-		return NewInternalError(err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return NewInternalError(err)
-	}
-
-	return nil
 }
 
 func handlePixel(w http.ResponseWriter, r *http.Request) error {
