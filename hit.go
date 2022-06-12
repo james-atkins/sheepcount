@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/oschwald/geoip2-golang"
 	"golang.org/x/text/language"
@@ -241,7 +242,7 @@ func (hit *Hit) setPageAndReferrer(env *SheepCount, pageUrl string, referrerUrl 
 		return BadInput(err)
 	}
 
-	domain := pu.Hostname()
+	domain := strings.ToLower(pu.Hostname())
 
 	if env.AllowLocalhost {
 		if domain == "localhost" || domain == "127.0.0.1" {
@@ -273,7 +274,7 @@ func (hit *Hit) setPageAndReferrer(env *SheepCount, pageUrl string, referrerUrl 
 		return BadInput(err)
 	}
 
-	if referrerDomain := ru.Hostname(); referrerDomain == "" {
+	if referrerDomain := strings.ToLower(ru.Hostname()); referrerDomain == "" {
 		return BadInput(fmt.Errorf("invalid referrer: no domain"))
 	} else {
 		hit.ReferrerDomain = sql.NullString{String: referrerDomain, Valid: true}
