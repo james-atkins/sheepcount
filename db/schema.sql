@@ -28,16 +28,22 @@ CREATE TABLE IF NOT EXISTS referrers (
 
 CREATE TABLE IF NOT EXISTS browsers (
     browser_id      INTEGER PRIMARY KEY,
-    browser_name    TEXT CHECK(browser_name != ''),
+    browser_name    TEXT NOT NULL CHECK(browser_name != ''),
     browser_version TEXT CHECK(browser_version != '')
 ) STRICT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS browsers_name_version ON browsers (browser_name, browser_version);
+CREATE UNIQUE INDEX IF NOT EXISTS browsers_name ON browsers (browser_name) WHERE browser_version IS NULL;
 
 
 CREATE TABLE IF NOT EXISTS systems (
     os_id      INTEGER PRIMARY KEY,
-    os_name    TEXT CHECK(os_name != ''),
+    os_name    TEXT NOT NULL CHECK(os_name != ''),
     os_version TEXT CHECK(os_version != '')
 ) STRICT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS systems_name_version ON systems (os_name, os_version);
+CREATE UNIQUE INDEX IF NOT EXISTS systems_name ON systems (os_name) WHERE os_version IS NULL;
 
 
 CREATE TABLE IF NOT EXISTS user_agents (

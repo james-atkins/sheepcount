@@ -229,54 +229,58 @@ func dbInsertUserAgent(ctx context.Context, tx *sql.Tx, userAgent string) (int64
 	bot := isbot.UserAgent(userAgent)
 
 	// Browsers
-	var browserId int64
+	var browserId sql.NullInt64
 
-	rowBrowser := tx.QueryRowContext(
-		ctx,
-		"SELECT browser_id FROM browsers WHERE browser_name = ? AND browser_version = ?",
-		browserName,
-		browserVersion,
-	)
-
-	if err := rowBrowser.Scan(&browserId); err != nil {
-		if err != sql.ErrNoRows {
-			return uaId, err
-		}
-
-		row := tx.QueryRowContext(
+	if browserName.Valid {
+		rowBrowser := tx.QueryRowContext(
 			ctx,
-			"INSERT INTO browsers (browser_name, browser_version) VALUES (?, ?) RETURNING browser_id",
+			"SELECT browser_id FROM browsers WHERE browser_name = ? AND browser_version IS ?",
 			browserName,
 			browserVersion,
 		)
-		if err := row.Scan(&browserId); err != nil {
-			return uaId, err
+
+		if err := rowBrowser.Scan(&browserId); err != nil {
+			if err != sql.ErrNoRows {
+				return uaId, err
+			}
+
+			row := tx.QueryRowContext(
+				ctx,
+				"INSERT INTO browsers (browser_name, browser_version) VALUES (?, ?) RETURNING browser_id",
+				browserName,
+				browserVersion,
+			)
+			if err := row.Scan(&browserId); err != nil {
+				return uaId, err
+			}
 		}
 	}
 
 	// Operating systems
-	var osId int64
+	var osId sql.NullInt64
 
-	rowOS := tx.QueryRowContext(
-		ctx,
-		"SELECT os_id FROM systems WHERE os_name = ? AND os_version = ?",
-		osName,
-		osVersion,
-	)
-
-	if err := rowOS.Scan(&osId); err != nil {
-		if err != sql.ErrNoRows {
-			return uaId, err
-		}
-
-		row := tx.QueryRowContext(
+	if osName.Valid {
+		rowOS := tx.QueryRowContext(
 			ctx,
-			"INSERT INTO systems (os_name, os_version) VALUES (?, ?) RETURNING os_id",
+			"SELECT os_id FROM systems WHERE os_name = ? AND os_version IS ?",
 			osName,
 			osVersion,
 		)
-		if err := row.Scan(&osId); err != nil {
-			return uaId, err
+
+		if err := rowOS.Scan(&osId); err != nil {
+			if err != sql.ErrNoRows {
+				return uaId, err
+			}
+
+			row := tx.QueryRowContext(
+				ctx,
+				"INSERT INTO systems (os_name, os_version) VALUES (?, ?) RETURNING os_id",
+				osName,
+				osVersion,
+			)
+			if err := row.Scan(&osId); err != nil {
+				return uaId, err
+			}
 		}
 	}
 
