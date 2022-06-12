@@ -14,16 +14,20 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS paths (
     path_id INTEGER PRIMARY KEY,
-    domain  TEXT NOT NULL CHECK(domain != ''),
-    path    TEXT NOT NULL CHECK(path != '')
+    domain  TEXT NOT NULL CHECK(domain != '' AND lower(domain) = domain),
+    path    TEXT NOT NULL CHECK(path != ''),
+    UNIQUE(domain, path)
 ) STRICT;
 
 
 CREATE TABLE IF NOT EXISTS referrers (
     referrer_id INTEGER PRIMARY KEY,
-    domain      TEXT NOT NULL CHECK(domain != ''),
+    domain      TEXT NOT NULL CHECK(domain != '' AND lower(domain) = domain),
     path        TEXT CHECK(path != '')
 ) STRICT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS referrers_domain_path ON referrers (domain, path);
+CREATE UNIQUE INDEX IF NOT EXISTS referrers_domain ON referrers (domain) WHERE path IS NULL;
 
 
 CREATE TABLE IF NOT EXISTS browsers (
