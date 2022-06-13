@@ -3,6 +3,7 @@ module github.com/james-atkins/sheepcount
 go 1.18
 
 require (
+	github.com/BurntSushi/toml v1.1.1-0.20220607204713-0a9f2b05b636
 	github.com/mattn/go-sqlite3 v1.14.13
 	github.com/oschwald/geoip2-golang v1.7.0
 	github.com/spf13/cobra v1.4.0

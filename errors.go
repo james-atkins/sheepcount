@@ -1,46 +1,10 @@
 package main
 
 import (
-	"database/sql"
 	_ "embed"
 	"fmt"
 	"net/http"
-	"text/template"
-
-	"github.com/oschwald/geoip2-golang"
 )
-
-//go:embed analytics.js
-var javascriptTemplate string
-
-type SheepCount struct {
-	Db   *sql.DB
-	Geo  *geoip2.Reader
-	Tmpl *template.Template
-	Hits chan Hit
-
-	// Config
-	Domains        []string
-	Key            []byte
-	AllowLocalhost bool
-	ReverseProxy   bool
-}
-
-func NewSheepCount(db *sql.DB, geo *geoip2.Reader) (*SheepCount, error) {
-	tmpl, err := template.New("analytics.js").Parse(javascriptTemplate)
-	if err != nil {
-		return nil, err
-	}
-
-	env := &SheepCount{
-		Db:   db,
-		Geo:  geo,
-		Tmpl: tmpl,
-		Hits: make(chan Hit),
-	}
-
-	return env, nil
-}
 
 type Error interface {
 	error

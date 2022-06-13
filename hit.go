@@ -15,10 +15,6 @@ import (
 	"zgo.at/isbot"
 )
 
-var xRealIP = http.CanonicalHeaderKey("X-Real-IP")
-
-// TODO: page_view etc
-
 type EventType string
 
 const (
@@ -63,10 +59,11 @@ type Event struct {
 
 // Unnormalised data
 type Hit struct {
-	Timestamp  int64
-	Identifier Identifier
-	UserAgent  string
-	Bot        sql.NullInt16
+	Timestamp          int64
+	IdentifierCurrent  []byte
+	IdentifierPrevious []byte
+	UserAgent          string
+	Bot                sql.NullInt16
 
 	Event EventType
 
@@ -91,37 +88,34 @@ type Location struct {
 	Postal      sql.NullString
 }
 
-func (hit *Hit) FromEndpoint(env *SheepCount, r *http.Request) Error {
-	var event Event
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
-		return BadInput(err)
-	}
-
-	ident, err := decodeToken(event.Token, env.Key)
-	if err != nil {
-		return BadInput(fmt.Errorf("invalid token: %w", err))
-	}
-
-	hit.Identifier = ident
-
+func NewHit(sheepcount *SheepCount, r *http.Request) (Hit, Error) {
+	var hit Hit
 	hit.Timestamp = time.Now().Unix()
 
-	if err := hit.fromRequest(env, r); err != nil {
-		return err
+	var event Event
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		return hit, BadInput(err)
 	}
 
-	if err := hit.fromEvent(env, &event); err != nil {
-		return err
+	identCurrent, identPrevious, err := sheepcount.fingerprintRequest(r)
+	if err != nil {
+		return hit, err
+	}
+	hit.IdentifierCurrent = identCurrent
+	hit.IdentifierPrevious = identPrevious
+
+	if err := hit.fromRequest(sheepcount, r); err != nil {
+		return hit, err
 	}
 
-	return nil
+	if err := hit.fromEvent(sheepcount, &event); err != nil {
+		return hit, err
+	}
+
+	return hit, nil
 }
 
-func (hit *Hit) FromPixel(env *SheepCount, r *http.Request) Error {
-	return nil
-}
-
-func (hit *Hit) fromRequest(env *SheepCount, r *http.Request) Error {
+func (hit *Hit) fromRequest(sheepcount *SheepCount, r *http.Request) Error {
 	hit.UserAgent = r.Header.Get("User-Agent")
 
 	// Language
@@ -133,45 +127,24 @@ func (hit *Hit) fromRequest(env *SheepCount, r *http.Request) Error {
 		}
 	}
 
-	// Extract IP
-	var ipAddress net.IP
-
-	if env.ReverseProxy {
-		if xrip := r.Header.Get(xRealIP); xrip != "" {
-			ipAddress = net.ParseIP(xrip)
-			if ipAddress == nil {
-				return NewInternalError(fmt.Errorf("X-Real-IP' %s' is not valid", xrip))
-			}
-		}
-	} else {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			return NewInternalError(fmt.Errorf("cannot get IP address from %s", r.RemoteAddr))
-		}
-		ipAddress = net.ParseIP(host)
-		if ipAddress == nil {
-			return NewInternalError(fmt.Errorf("remote address '%s' is not valid", host))
-		}
-	}
-
 	// Is this considered a bot because of the IP range?
-	if bot := isbot.IPRange(ipAddress.String()); isbot.Is(bot) {
+	if bot := isbot.IPRange(r.RemoteAddr); isbot.Is(bot) {
 		hit.Bot = sql.NullInt16{Int16: int16(bot), Valid: true}
 	}
 
-	if err := hit.setLocation(env.Geo, ipAddress); err != nil {
+	if err := hit.setLocation(sheepcount.geo, net.ParseIP(r.RemoteAddr)); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (hit *Hit) fromEvent(env *SheepCount, event *Event) Error {
+func (hit *Hit) fromEvent(sheepcount *SheepCount, event *Event) Error {
 	// Event
 	hit.Event = event.Event
 
 	// Page and referrer URL
-	if err := hit.setPageAndReferrer(env, event.Url, event.Referrer); err != nil {
+	if err := hit.setPageAndReferrer(sheepcount, event.Url, event.Referrer); err != nil {
 		return err
 	}
 
@@ -240,7 +213,7 @@ func (hit *Hit) setLocation(db *geoip2.Reader, ip net.IP) Error {
 	return nil
 }
 
-func (hit *Hit) setPageAndReferrer(env *SheepCount, pageUrl string, referrerUrl string) Error {
+func (hit *Hit) setPageAndReferrer(sheepcount *SheepCount, pageUrl string, referrerUrl string) Error {
 	pu, err := url.Parse(pageUrl)
 	if err != nil {
 		return BadInput(err)
@@ -248,12 +221,12 @@ func (hit *Hit) setPageAndReferrer(env *SheepCount, pageUrl string, referrerUrl 
 
 	domain := strings.ToLower(pu.Hostname())
 
-	if env.AllowLocalhost {
+	if sheepcount.AllowLocalhost {
 		if domain == "localhost" || domain == "127.0.0.1" {
 			hit.Domain = domain
 		}
 	} else {
-		for _, allowedDomain := range env.Domains {
+		for _, allowedDomain := range sheepcount.Domains {
 			if domain == allowedDomain {
 				hit.Domain = domain
 				break

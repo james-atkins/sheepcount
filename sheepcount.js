@@ -7,7 +7,6 @@
 
     function payload(event) {
         var p = {
-            t: "{{ .Token }}",
             e: event,
             u: d.URL,
             r: d.referrer,
@@ -27,11 +26,11 @@
     }
 
     function page_view() {
-        {{ if not .AllowLocalhost }}
+        {{- if not .AllowLocalhost }}
         if (location.hostname.match(/(^localhost$|^127\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^192\.168\.|^0\.0\.0\.0$|^100\.)/)) {
             return;
         }
-        {{ end }}
+        {{- end }}
         if (location.protocol == "file:") {
             return;
         }

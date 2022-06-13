@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"embed"
 	"fmt"
 	"log"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 
 	"golang.org/x/sync/errgroup"
 	"zgo.at/gadget"
@@ -30,7 +33,7 @@ func DatabaseWriter(ctx context.Context, db *sql.DB, hitC <-chan Hit) error {
 
 	errgrp.Go(func() error {
 		ticker := time.NewTicker(10 * time.Second)
-		var hits []Hit
+		hits := make([]Hit, 0, 16)
 
 		for {
 			select {
@@ -75,9 +78,11 @@ func DatabaseWriter(ctx context.Context, db *sql.DB, hitC <-chan Hit) error {
 		// When ctx.Done() closes, the above goroutine sends any remaining batched hits
 		// to the channel and then closes it. So there is no need to select on ctx.Done()
 		// here too.
+		// Note: As we want to write hits to the database even when we are shutting down, we use
+		// the background context in all database function calls.
 		for hits := range hitsC {
 			err := func() error {
-				tx, err := conn.BeginTx(ctx, nil)
+				tx, err := conn.BeginTx(context.Background(), nil)
 				if err != nil {
 					return err
 				}
@@ -87,21 +92,17 @@ func DatabaseWriter(ctx context.Context, db *sql.DB, hitC <-chan Hit) error {
 				// immediately report a locked database error if there is already another write transaction.
 				// As we know that we are going to insert data, let's always start the transaction in IMMEDIATE
 				// mode. This works around this known bug: https://github.com/mattn/go-sqlite3/issues/400.
-				if _, err := tx.ExecContext(ctx, "ROLLBACK; BEGIN IMMEDIATE"); err != nil {
+				if _, err := tx.ExecContext(context.Background(), "ROLLBACK; BEGIN IMMEDIATE"); err != nil {
 					return err
 				}
 
 				for _, hit := range hits {
-					if err := dbInsertHit(ctx, tx, &hit); err != nil {
+					if err := dbInsertHit(context.Background(), tx, &hit); err != nil {
 						return err
 					}
 				}
 
-				if err := tx.Commit(); err != nil {
-					return err
-				}
-
-				return nil
+				return tx.Commit()
 			}()
 
 			if err != nil {
@@ -122,8 +123,6 @@ func dbConnect(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	db.SetMaxOpenConns(50)
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -156,20 +155,14 @@ func dbConnect(path string) (*sql.DB, error) {
 
 func dbInsertHit(ctx context.Context, tx *sql.Tx, hit *Hit) error {
 	// User ID
-	var userId int64
-	row := tx.QueryRowContext(
-		ctx,
-		"INSERT INTO users (identifier) VALUES (?) ON CONFLICT (identifier) DO UPDATE SET last_seen = strftime('%s', 'now') RETURNING user_id",
-		hit.Identifier[:],
-	)
-	err := row.Scan(&userId)
+	userId, err := dbInsertUser(ctx, tx, hit.IdentifierCurrent, hit.IdentifierPrevious)
 	if err != nil {
-		return fmt.Errorf("user sql error: %w", err)
+		return err
 	}
 
 	// Path
 	var pathId int64
-	row = tx.QueryRowContext(ctx, "SELECT path_id FROM paths WHERE domain = ? AND path = ?", hit.Domain, hit.Path)
+	row := tx.QueryRowContext(ctx, "SELECT path_id FROM paths WHERE domain = ? AND path = ?", hit.Domain, hit.Path)
 	err = row.Scan(&pathId)
 	if err != nil {
 		if err != sql.ErrNoRows {
@@ -287,6 +280,57 @@ func dbInsertHit(ctx context.Context, tx *sql.Tx, hit *Hit) error {
 	}
 
 	return nil
+}
+
+func dbInsertUser(ctx context.Context, tx *sql.Tx, currentIdentifier []byte, previousIdentifier []byte) (int64, error) {
+	var userId int64
+	var identifier []byte
+
+	row := tx.QueryRowContext(
+		ctx,
+		"SELECT user_id, identifier FROM users WHERE identifier = ? OR identifier = ?",
+		currentIdentifier,
+		previousIdentifier,
+	)
+
+	err := row.Scan(&userId, &identifier)
+	if err != nil && err != sql.ErrNoRows {
+		return userId, err
+	}
+
+	if err == sql.ErrNoRows {
+		row := tx.QueryRowContext(
+			ctx,
+			"INSERT INTO users (identifier) VALUES (?) RETURNING user_id",
+			currentIdentifier,
+		)
+		if err := row.Scan(&userId); err != nil {
+			return userId, err
+		}
+	} else if bytes.Equal(identifier, currentIdentifier) {
+		_, err := tx.ExecContext(
+			ctx,
+			"UPDATE users SET last_seen = strftime('%s', 'now') WHERE user_id = ?",
+			userId,
+		)
+		if err != nil {
+			return userId, err
+		}
+	} else if bytes.Equal(identifier, previousIdentifier) {
+		_, err := tx.ExecContext(
+			ctx,
+			"UPDATE users SET identifier = ?, last_seen = strftime('%s', 'now') WHERE user_id = ?",
+			currentIdentifier,
+			userId,
+		)
+		if err != nil {
+			return userId, err
+		}
+	} else {
+		panic("this should not happen")
+	}
+
+	return userId, nil
 }
 
 func dbInsertUserAgent(ctx context.Context, tx *sql.Tx, userAgent string) (int64, error) {
@@ -497,4 +541,28 @@ func dbInsertLocation(ctx context.Context, tx *sql.Tx, location *Location) (sql.
 		panic("locationId must be valid")
 	}
 	return locationId, nil
+}
+
+func dbDeleteExpired(ctx context.Context, deleteSince time.Duration, db *sql.DB) (int64, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(
+		ctx,
+		"UPDATE users SET identifier = NULL WHERE identifier IS NOT NULL AND last_seen + ? < CAST(strftime('%s','now') AS INTEGER)",
+		deleteSince.Seconds(),
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }
