@@ -47,7 +47,6 @@ func (e *EventType) UnmarshalJSON(src []byte) error {
 }
 
 type Event struct {
-	Token        string    `json:"t"`
 	Event        EventType `json:"e"`
 	Url          string    `json:"u"`
 	Referrer     string    `json:"r"`
