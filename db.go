@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"embed"
 	"fmt"
+	"io/fs"
 	"log"
 	"time"
 
@@ -15,9 +15,6 @@ import (
 	"zgo.at/gadget"
 	"zgo.at/isbot"
 )
-
-//go:embed db/*.sql
-var dbFs embed.FS
 
 func DatabaseWriter(ctx context.Context, db *sql.DB, hitC <-chan Hit) error {
 	errgrp, ctx := errgroup.WithContext(ctx)
@@ -130,7 +127,7 @@ func dbConnect(path string) (*sql.DB, error) {
 	}
 	defer tx.Rollback()
 
-	schema, err := dbFs.ReadFile("db/schema.sql")
+	schema, err := fs.ReadFile(contentFs, "db/schema.sql")
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +135,7 @@ func dbConnect(path string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	languages, err := dbFs.ReadFile("db/languages.sql")
+	languages, err := fs.ReadFile(contentFs, "db/languages.sql")
 	if err != nil {
 		return nil, err
 	}

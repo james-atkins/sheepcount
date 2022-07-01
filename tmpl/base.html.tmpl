@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>Sheep Count</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" type="text/css" href="/static/style.css">
+
+  <style>
+  body {
+    overflow-y: scroll;
+  }
+
+  .button {
+    border: none;
+    border-radius: 5px;
+    background: var(--accent);
+    font-size: 1.5rem;
+    color: var(--bg);
+    padding: 0.7rem 0.9rem;
+    margin: 0.5rem 0;
+  }
+
+  .button:hover,
+  .button:focus {
+    filter: brightness(1.4);
+    cursor: pointer;
+  }
+
+  .icon {
+    vertical-align: sub;
+    padding-right: .25rem;
+    display: inline-block;
+    width: 1em;
+    height: 1.3em;
+    margin-right: 0.2rem;
+    stroke-width: 0;
+    stroke: currentColor;
+    fill: currentColor;
+  }
+  </style>
+
+  {{ block "head" . }}{{ end }}
+</head>
+
+<body>
+  <header>
+    <h1>
+      <img src="/static/icon-128.png" height="128" width="128" alt="Sheep Count" style="height: 3rem; width: 3rem;">
+      <br>
+      <span>Sheep Count</span>
+    </h1>    
+    <p><i>Simple Web Analytics</i></p>
+    {{ block "nav" . }}{{ end }}
+  </header>
+
+  <main>
+    {{ block "content" . }}{{ end }}
+  </main>
+
+  <footer>
+    <p>Sheep Count was created by <a href="https://www.jamesatkins.net">James Atkins</a></p>
+    <p>Contribute on <a href="https://github.com/james-atkins/SheepCount">GitHub</a></p>
+  </footer>
+</body>
+
+</html>

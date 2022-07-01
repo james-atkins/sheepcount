@@ -5,10 +5,11 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
-	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"html/template"
+	"io"
+	"io/fs"
 	"io/ioutil"
 	"log"
 	"net"
@@ -23,13 +24,11 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-//go:embed sheepcount.js
-var javascriptTemplate string
-
 type SheepCount struct {
 	db        *sql.DB
+	queries   Queries
 	geo       *geoip2.Reader
-	tmpl      *template.Template
+	tmpl      Templater
 	saltsfile *os.File
 
 	Config
@@ -41,7 +40,10 @@ type SheepCount struct {
 }
 
 type Config struct {
-	Domains []string `toml:"domains"`
+	Domains   []string `toml:"domains"`
+	Password  string   `toml:"password"`
+	CookieKey string   `toml:"cookie_key"`
+	CSRFKey   string   `toml:"csrf_key"`
 
 	HeadersToHash        []string      `toml:"headers"`
 	SaltRotationDuration time.Duration `toml:"rotation_frequency"`
@@ -61,8 +63,22 @@ type Salts struct {
 	Previous    [16]byte  `json:"previous"`
 }
 
+type Templater interface {
+	ExecuteTemplate(wr io.Writer, name string, data interface{}) error
+}
+
+var ErrQueryNotFound = errors.New("query not found")
+
+type Queries interface {
+	Get(name string) (Query, error)
+}
+
+type Query interface {
+	QueryRowContext(context.Context, ...interface{}) *sql.Row
+}
+
 func NewSheepCount(db *sql.DB, geo *geoip2.Reader, config Config, saltsfilename string) (*SheepCount, error) {
-	tmpl, err := template.New("analytics.js").Parse(javascriptTemplate)
+	tmpl, err := NewTemplates()
 	if err != nil {
 		return nil, err
 	}
@@ -72,8 +88,14 @@ func NewSheepCount(db *sql.DB, geo *geoip2.Reader, config Config, saltsfilename 
 		return nil, err
 	}
 
+	queries, err := NewQueries(db)
+	if err != nil {
+		return nil, err
+	}
+
 	sheepcount := &SheepCount{
 		db:        db,
+		queries:   queries,
 		geo:       geo,
 		tmpl:      tmpl,
 		saltsfile: saltsfile,
@@ -176,7 +198,40 @@ func (sheepcount *SheepCount) Run(ctx context.Context, socket net.Listener) erro
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { handleHome(sheepcount, w, r) })
 	mux.HandleFunc("/event", func(w http.ResponseWriter, r *http.Request) { handleEvent(sheepcount, hits, w, r) })
-	mux.HandleFunc("/sheep.js", sheepcount.handleJavascript)
+	mux.HandleFunc("/count.js", sheepcount.handleJavascript)
+	mux.HandleFunc("/queries/", func(w http.ResponseWriter, r *http.Request) {
+		handleQueries(sheepcount, w, r)
+	})
+	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+		handleLogin(sheepcount, w, r)
+	})
+	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
+		handleLogout(sheepcount, w, r)
+	})
+	mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
+		http.FileServer(http.FS(contentFs)).ServeHTTP(w, r)
+	})
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		f, err := contentFs.Open("static/favicon.ico")
+		if errors.Is(err, fs.ErrNotExist) {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer f.Close()
+
+		w.Header().Set("Content-Type", "image/x-icon")
+		io.Copy(w, f)
+	})
+
 	srv := http.Server{Handler: recoverer(ipAddress(sheepcount.ReverseProxy, mux))}
 
 	// Goroutine to run the server
@@ -199,6 +254,14 @@ func (sheepcount *SheepCount) Run(ctx context.Context, socket net.Listener) erro
 	})
 
 	return errgrp.Wait()
+}
+
+func (sheepcount *SheepCount) getHost(r *http.Request) string {
+	if sheepcount.ReverseProxy {
+		return sheepcount.Hostname
+	} else {
+		return r.Host
+	}
 }
 
 func (sheepcount *SheepCount) handleJavascript(w http.ResponseWriter, r *http.Request) {
@@ -348,31 +411,6 @@ func (salts *Salts) Rotate() error {
 	return nil
 }
 
-func handleHome(sheepcount *SheepCount, w http.ResponseWriter, r *http.Request) {
-	if !(r.URL.Path == "/" || r.URL.Path == "/index.html") {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	w.Write([]byte(`
-<!doctype html>
-<html>
-<head>
-<title>SheepCount</title>
-<script src="/sheep.js" defer></script>
-</head>
-<body>
-Welcome to SheepCount.
-</body>
-</html>
-	`))
-}
-
 func handleEvent(sheepcount *SheepCount, hits chan<- Hit, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -392,7 +430,7 @@ func handleEvent(sheepcount *SheepCount, hits chan<- Hit, w http.ResponseWriter,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func sheepJS(tmpl *template.Template, allowLocalhost bool, url string) ([]byte, []byte, error) {
+func sheepJS(tmpl Templater, allowLocalhost bool, url string) ([]byte, []byte, error) {
 	var buf bytes.Buffer
 
 	params := struct {
@@ -403,7 +441,7 @@ func sheepJS(tmpl *template.Template, allowLocalhost bool, url string) ([]byte, 
 		Url:            url,
 	}
 
-	if err := tmpl.Execute(&buf, params); err != nil {
+	if err := tmpl.ExecuteTemplate(&buf, "sheepcount.js.tmpl", params); err != nil {
 		return nil, nil, err
 	}
 

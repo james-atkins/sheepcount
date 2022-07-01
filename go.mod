@@ -1,9 +1,10 @@
 module github.com/james-atkins/sheepcount
 
-go 1.18
+go 1.17
 
 require (
 	github.com/BurntSushi/toml v1.1.1-0.20220607204713-0a9f2b05b636
+	github.com/gorilla/securecookie v1.1.1
 	github.com/mattn/go-sqlite3 v1.14.13
 	github.com/oschwald/geoip2-golang v1.7.0
 	github.com/spf13/cobra v1.4.0
@@ -21,6 +22,6 @@ require (
 	github.com/oschwald/maxminddb-golang v1.9.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/sys v0.0.0-20220325203850-36772127a21f // indirect
+	golang.org/x/sys v0.0.0-20220412211240-33da011f77ad // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
 )
