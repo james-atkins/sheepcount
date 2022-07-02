@@ -408,7 +408,7 @@ func dbInsertUserAgent(ctx context.Context, tx *sql.Tx, userAgent string) (int64
 	if osName.Valid {
 		rowOS := tx.QueryRowContext(
 			ctx,
-			"SELECT os_id FROM systems WHERE os_name = ? AND os_version IS ?",
+			"SELECT os_id FROM oss WHERE os_name = ? AND os_version IS ?",
 			osName,
 			osVersion,
 		)
@@ -420,7 +420,7 @@ func dbInsertUserAgent(ctx context.Context, tx *sql.Tx, userAgent string) (int64
 
 			row := tx.QueryRowContext(
 				ctx,
-				"INSERT INTO systems (os_name, os_version) VALUES (?, ?) RETURNING os_id",
+				"INSERT INTO oss (os_name, os_version) VALUES (?, ?) RETURNING os_id",
 				osName,
 				osVersion,
 			)

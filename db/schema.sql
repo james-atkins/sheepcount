@@ -58,21 +58,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS browsers_name_version ON browsers (browser_nam
 CREATE UNIQUE INDEX IF NOT EXISTS browsers_name ON browsers (browser_name) WHERE browser_version IS NULL;
 
 
-CREATE TABLE IF NOT EXISTS systems (
+CREATE TABLE IF NOT EXISTS oss (
     os_id      INTEGER PRIMARY KEY,
     os_name    TEXT NOT NULL CHECK(os_name != ''),
     os_version TEXT CHECK(os_version != '')
 ) STRICT;
 
-CREATE UNIQUE INDEX IF NOT EXISTS systems_name_version ON systems (os_name, os_version);
-CREATE UNIQUE INDEX IF NOT EXISTS systems_name ON systems (os_name) WHERE os_version IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS oss_name_version ON oss (os_name, os_version);
+CREATE UNIQUE INDEX IF NOT EXISTS oss_name ON oss (os_name) WHERE os_version IS NULL;
 
 
 CREATE TABLE IF NOT EXISTS user_agents (
     user_agent_id INTEGER PRIMARY KEY,
     user_agent    TEXT NOT NULL UNIQUE,
     browser_id    INTEGER REFERENCES browsers(browser_id),
-    os_id         INTEGER REFERENCES systems(os_id),
+    os_id         INTEGER REFERENCES oss(os_id),
     bot           INTEGER NOT NULL
 ) STRICT;
 
