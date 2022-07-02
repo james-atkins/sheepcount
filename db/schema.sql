@@ -12,6 +12,24 @@ CREATE TABLE IF NOT EXISTS users (
 ) STRICT;
 
 
+CREATE TABLE IF NOT EXISTS salts (
+    last_rotated  INTEGER NOT NULL,
+    current       BLOB NOT NULL,
+    previous      BLOB NOT NULL
+) STRICT;
+
+CREATE TRIGGER IF NOT EXISTS valid_salts
+AFTER INSERT ON salts
+BEGIN
+    SELECT CASE
+        WHEN
+            (SELECT count(*) FROM salts) > 1
+        THEN
+            RAISE(ABORT, 'too many salts')
+    END;
+END;
+
+
 CREATE TABLE IF NOT EXISTS paths (
     path_id INTEGER PRIMARY KEY,
     domain  TEXT NOT NULL CHECK(domain != '' AND lower(domain) = domain),

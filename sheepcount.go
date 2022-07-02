@@ -5,17 +5,14 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"sync"
 	"time"
 
@@ -25,11 +22,10 @@ import (
 )
 
 type SheepCount struct {
-	db        *sql.DB
-	queries   Queries
-	geo       *geoip2.Reader
-	tmpl      Templater
-	saltsfile *os.File
+	db      *sql.DB
+	queries Queries
+	geo     *geoip2.Reader
+	tmpl    Templater
 
 	Config
 	Salts
@@ -77,13 +73,8 @@ type Query interface {
 	QueryRowContext(context.Context, ...interface{}) *sql.Row
 }
 
-func NewSheepCount(db *sql.DB, geo *geoip2.Reader, config Config, saltsfilename string) (*SheepCount, error) {
+func NewSheepCount(db *sql.DB, geo *geoip2.Reader, config Config) (*SheepCount, error) {
 	tmpl, err := NewTemplates()
-	if err != nil {
-		return nil, err
-	}
-
-	saltsfile, err := os.OpenFile(saltsfilename, os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err
 	}
@@ -94,15 +85,16 @@ func NewSheepCount(db *sql.DB, geo *geoip2.Reader, config Config, saltsfilename 
 	}
 
 	sheepcount := &SheepCount{
-		db:        db,
-		queries:   queries,
-		geo:       geo,
-		tmpl:      tmpl,
-		saltsfile: saltsfile,
-		Config:    config,
+		db:      db,
+		queries: queries,
+		geo:     geo,
+		tmpl:    tmpl,
+		Config:  config,
 	}
 
-	sheepcount.Salts.loadFromFile(saltsfile)
+	if err := sheepcount.Salts.load(db); err != nil {
+		return nil, err
+	}
 
 	if time.Since(sheepcount.Salts.LastRotated) >= config.SaltRotationDuration {
 		if err := sheepcount.Salts.Rotate(); err != nil {
@@ -181,13 +173,8 @@ func (sheepcount *SheepCount) Run(ctx context.Context, socket net.Listener) erro
 	errgrp.Go(func() error {
 		<-ctx.Done()
 
-		if err := sheepcount.Salts.saveToFile(sheepcount.saltsfile); err != nil {
+		if err := sheepcount.Salts.save(sheepcount.db); err != nil {
 			log.Printf("error saving salts to file: %s", err)
-			return err
-		}
-
-		if err := sheepcount.saltsfile.Close(); err != nil {
-			log.Printf("cannot close salts file: %s", err)
 			return err
 		}
 
@@ -342,56 +329,63 @@ func DefaultConfig() Config {
 	}
 }
 
-func (salts *Salts) saveToFile(file *os.File) error {
+func (salts *Salts) save(db *sql.DB) error {
+	log.Print("Saving salts")
 	salts.RLock()
 	defer salts.RUnlock()
 
-	contents, err := json.Marshal(salts)
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM salts"); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(
+		"INSERT INTO salts (last_rotated, current, previous) VALUES (?,?,?)",
+		salts.LastRotated.Unix(),
+		salts.Current[:],
+		salts.Previous[:],
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (salts *Salts) load(db *sql.DB) error {
+	salts.Lock()
+	defer salts.Unlock()
+
+	row := db.QueryRow("SELECT last_rotated, current, previous FROM salts")
+	var (
+		lastRotated int64
+		current     []byte
+		previous    []byte
+	)
+	err := row.Scan(&lastRotated, &current, &previous)
+	if err == sql.ErrNoRows {
+		// Generate random salts
+		salts.LastRotated = time.Now().UTC()
+		if _, err := rand.Read(salts.Current[:]); err != nil {
+			return fmt.Errorf("cannot generate salts: %w", err)
+		}
+		if _, err := rand.Read(salts.Previous[:]); err != nil {
+			return fmt.Errorf("cannot generate salts: %w", err)
+		}
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 
-	_, err = file.Seek(0, 0)
-	if err != nil {
-		return fmt.Errorf("cannot seek: %w", err)
-	}
-	_, err = file.Write(contents)
-	if err != nil {
-		return fmt.Errorf("cannot write: %w", err)
-	}
+	salts.LastRotated = time.Unix(lastRotated, 0)
+	copy(salts.Current[:], current)
+	copy(salts.Previous[:], previous)
 
-	return nil
-}
-
-func (salts *Salts) loadFromFile(file *os.File) error {
-	salts.Lock()
-	defer salts.Unlock()
-
-	file.Seek(0, 0)
-
-	contents, err := ioutil.ReadAll(file)
-	if len(contents) == 0 {
-		goto generateRandom
-	}
-	if err != nil {
-		return fmt.Errorf("cannot read salts: %w", err)
-	}
-
-	err = json.Unmarshal(contents, &salts)
-	if err != nil {
-		return fmt.Errorf("cannot read salts: %w", err)
-	}
-
-	return nil
-
-generateRandom:
-	salts.LastRotated = time.Now().UTC()
-	if _, err := rand.Read(salts.Current[:]); err != nil {
-		return fmt.Errorf("cannot generate salts: %w", err)
-	}
-	if _, err := rand.Read(salts.Previous[:]); err != nil {
-		return fmt.Errorf("cannot generate salts: %w", err)
-	}
 	return nil
 }
 

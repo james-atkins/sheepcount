@@ -47,7 +47,6 @@ func main() {
 	}()
 
 	var configPath string
-	var saltsPath string
 
 	var databasePath string
 	var db *sql.DB
@@ -81,7 +80,7 @@ func main() {
 				return
 			}
 
-			sheepcount, err := NewSheepCount(db, geo, config, saltsPath)
+			sheepcount, err := NewSheepCount(db, geo, config)
 			if err != nil {
 				log.Printf("%+v", err)
 				return
@@ -145,7 +144,6 @@ func main() {
 	}
 
 	cmd.PersistentFlags().StringVar(&configPath, "config", "sheepcount.toml", "Path to configuration file")
-	cmd.PersistentFlags().StringVar(&saltsPath, "salts", "sheepcount.salts", "Path to salts file")
 	cmd.PersistentFlags().StringVar(&databasePath, "database", "sheepcount.sqlite3", "Path to database")
 	cmd.PersistentFlags().StringVar(&geoPath, "geoip-database", "GeoLite2-City.mmdb", "Path to GeoIP2 database")
 	cmd.PersistentFlags().IntVar(&port, "port", 4444, "Port to listen on")
