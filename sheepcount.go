@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,22 +14,21 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
-	"github.com/oschwald/geoip2-golang"
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/sync/errgroup"
 )
 
 type SheepCount struct {
 	db      *sql.DB
+	state   *State
 	queries Queries
-	geo     *geoip2.Reader
 	tmpl    Templater
 
 	Config
-	Salts
 
 	// Override default behaviour
 	fingerprinter     func(*SheepCount, *http.Request) ([]byte, []byte, Error)
@@ -46,6 +46,11 @@ type Config struct {
 	AllowLocalhost       bool
 	ReverseProxy         bool
 	Hostname             string `toml:"hostname"` // If behind a reverse proxy, the server hostname
+}
+
+type State struct {
+	Salts Salts `json:"salts"`
+	GeoIP GeoIP `json:"geoip"`
 }
 
 // We want to track unique views over a T hour time period so we generate two
@@ -73,7 +78,7 @@ type Query interface {
 	QueryRowContext(context.Context, ...interface{}) *sql.Row
 }
 
-func NewSheepCount(db *sql.DB, geo *geoip2.Reader, config Config) (*SheepCount, error) {
+func NewSheepCount(db *sql.DB, config Config) (*SheepCount, error) {
 	tmpl, err := NewTemplates()
 	if err != nil {
 		return nil, err
@@ -84,22 +89,17 @@ func NewSheepCount(db *sql.DB, geo *geoip2.Reader, config Config) (*SheepCount, 
 		return nil, err
 	}
 
+	state := &State{}
+	if err := state.Load("sheepcount.state", &config); err != nil {
+		return nil, fmt.Errorf("cannot load state: %w", err)
+	}
+
 	sheepcount := &SheepCount{
 		db:      db,
+		state:   state,
 		queries: queries,
-		geo:     geo,
 		tmpl:    tmpl,
 		Config:  config,
-	}
-
-	if err := sheepcount.Salts.load(db); err != nil {
-		return nil, err
-	}
-
-	if time.Since(sheepcount.Salts.LastRotated) >= config.SaltRotationDuration {
-		if err := sheepcount.Salts.Rotate(); err != nil {
-			return nil, err
-		}
 	}
 
 	return sheepcount, nil
@@ -117,9 +117,9 @@ func (sheepcount *SheepCount) Run(ctx context.Context, socket net.Listener) erro
 	// Goroutine to rotate the salts and delete expired identifiers
 	errgrp.Go(func() error {
 		// When is the next time we need to rotate the salts?
-		sheepcount.Salts.RLock()
-		nextRotation := time.Until(sheepcount.LastRotated.Add(sheepcount.SaltRotationDuration))
-		sheepcount.Salts.RUnlock()
+		sheepcount.state.Salts.RLock()
+		nextRotation := time.Until(sheepcount.state.Salts.LastRotated.Add(sheepcount.SaltRotationDuration))
+		sheepcount.state.Salts.RUnlock()
 
 		if nextRotation > 0 {
 			after := time.After(nextRotation)
@@ -128,7 +128,7 @@ func (sheepcount *SheepCount) Run(ctx context.Context, socket net.Listener) erro
 				return ctx.Err()
 
 			case <-after:
-				if err := sheepcount.Salts.Rotate(); err != nil {
+				if err := sheepcount.state.Salts.Rotate(); err != nil {
 					return fmt.Errorf("error rotating salts: %w", err)
 				}
 
@@ -153,7 +153,7 @@ func (sheepcount *SheepCount) Run(ctx context.Context, socket net.Listener) erro
 				return ctx.Err()
 
 			case <-ticker.C:
-				if err := sheepcount.Salts.Rotate(); err != nil {
+				if err := sheepcount.state.Salts.Rotate(); err != nil {
 					return fmt.Errorf("error rotating salts: %w", err)
 				}
 
@@ -169,13 +169,30 @@ func (sheepcount *SheepCount) Run(ctx context.Context, socket net.Listener) erro
 		}
 	})
 
-	// Goroutine to save salts on exit
+	// Goroutine to keep geolocation database up-to-date
+	errgrp.Go(func() error {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+
+			case <-ticker.C:
+				if err := sheepcount.state.GeoIP.Update(); err != nil {
+					log.Printf("Cannot update GeoIP database: %s", err)
+				}
+			}
+		}
+	})
+
+	// Goroutine to persist state on exit
 	errgrp.Go(func() error {
 		<-ctx.Done()
 
-		if err := sheepcount.Salts.save(sheepcount.db); err != nil {
-			log.Printf("error saving salts to file: %s", err)
-			return err
+		if err := sheepcount.state.Save("sheepcount.state"); err != nil {
+			return fmt.Errorf("error persisting state: %w", err)
 		}
 
 		return nil
@@ -295,15 +312,15 @@ func (sheepcount *SheepCount) fingerprintRequest(r *http.Request) ([]byte, []byt
 		return sheepcount.fingerprinter(sheepcount, r)
 	}
 
-	sheepcount.Salts.RLock()
-	defer sheepcount.Salts.RUnlock()
+	sheepcount.state.Salts.RLock()
+	defer sheepcount.state.Salts.RUnlock()
 
-	hasherCurrent, err := blake2b.New(blake2b.Size256, sheepcount.Salts.Current[:])
+	hasherCurrent, err := blake2b.New(blake2b.Size256, sheepcount.state.Salts.Current[:])
 	if err != nil {
 		return nil, nil, NewInternalError(err)
 	}
 
-	hasherPrevious, err := blake2b.New(blake2b.Size256, sheepcount.Salts.Previous[:])
+	hasherPrevious, err := blake2b.New(blake2b.Size256, sheepcount.state.Salts.Previous[:])
 	if err != nil {
 		return nil, nil, NewInternalError(err)
 	}
@@ -329,62 +346,92 @@ func DefaultConfig() Config {
 	}
 }
 
-func (salts *Salts) save(db *sql.DB) error {
-	log.Print("Saving salts")
-	salts.RLock()
-	defer salts.RUnlock()
-
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec("DELETE FROM salts"); err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec(
-		"INSERT INTO salts (last_rotated, current, previous) VALUES (?,?,?)",
-		salts.LastRotated.Unix(),
-		salts.Current[:],
-		salts.Previous[:],
-	); err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-func (salts *Salts) load(db *sql.DB) error {
-	salts.Lock()
-	defer salts.Unlock()
-
-	row := db.QueryRow("SELECT last_rotated, current, previous FROM salts")
-	var (
-		lastRotated int64
-		current     []byte
-		previous    []byte
-	)
-	err := row.Scan(&lastRotated, &current, &previous)
-	if err == sql.ErrNoRows {
-		// Generate random salts
-		salts.LastRotated = time.Now().UTC()
-		if _, err := rand.Read(salts.Current[:]); err != nil {
-			return fmt.Errorf("cannot generate salts: %w", err)
+func (state *State) Load(statePath string, config *Config) error {
+	f, err := os.Open(statePath)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := state.Salts.Load(config.SaltRotationDuration); err != nil {
+			return err
 		}
-		if _, err := rand.Read(salts.Previous[:]); err != nil {
-			return fmt.Errorf("cannot generate salts: %w", err)
+		if err := state.GeoIP.Load(); err != nil {
+			return err
 		}
+
 		return nil
 	}
+
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	contents, err := io.ReadAll(f)
 	if err != nil {
 		return err
 	}
 
-	salts.LastRotated = time.Unix(lastRotated, 0)
-	copy(salts.Current[:], current)
-	copy(salts.Previous[:], previous)
+	state.Salts.Lock()
+	state.GeoIP.Lock()
+	err = json.Unmarshal(contents, state)
+	state.GeoIP.Unlock()
+	state.Salts.Unlock()
+
+	if err != nil {
+		return err
+	}
+
+	if err := state.Salts.Load(config.SaltRotationDuration); err != nil {
+		return err
+	}
+	if err := state.GeoIP.Load(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (state *State) Save(statePath string) error {
+	state.Salts.RLock()
+	defer state.Salts.RUnlock()
+
+	contents, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	f, err := os.OpenFile(statePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.Write(contents)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (salts *Salts) Load(rotationFreq time.Duration) error {
+	if salts.LastRotated.IsZero() {
+		log.Print("Generating random salts")
+
+		salts.LastRotated = time.Now().UTC()
+		if _, err := rand.Read(salts.Current[:]); err != nil {
+			return err
+		}
+		if _, err := rand.Read(salts.Previous[:]); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	if time.Since(salts.LastRotated) >= rotationFreq {
+		if err := salts.Rotate(); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

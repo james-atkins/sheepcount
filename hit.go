@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oschwald/geoip2-golang"
 	"golang.org/x/text/language"
 	"zgo.at/isbot"
 )
@@ -131,7 +130,7 @@ func (hit *Hit) fromRequest(sheepcount *SheepCount, r *http.Request) Error {
 		hit.Bot = sql.NullInt16{Int16: int16(bot), Valid: true}
 	}
 
-	if err := hit.setLocation(sheepcount.geo, net.ParseIP(r.RemoteAddr)); err != nil {
+	if err := hit.setLocation(&sheepcount.state.GeoIP, net.ParseIP(r.RemoteAddr)); err != nil {
 		return err
 	}
 
@@ -176,8 +175,8 @@ func (hit *Hit) fromEvent(sheepcount *SheepCount, event *Event) Error {
 	return nil
 }
 
-func (hit *Hit) setLocation(db *geoip2.Reader, ip net.IP) Error {
-	record, err := db.City(ip)
+func (hit *Hit) setLocation(geo *GeoIP, ip net.IP) Error {
+	record, err := geo.City(ip)
 	if err != nil {
 		return NewInternalError(fmt.Errorf("geoip2 error: %w", err))
 	}

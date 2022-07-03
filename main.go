@@ -13,7 +13,6 @@ import (
 	"syscall"
 
 	"github.com/BurntSushi/toml"
-	"github.com/oschwald/geoip2-golang"
 	"github.com/spf13/cobra"
 )
 
@@ -51,9 +50,6 @@ func main() {
 	var databasePath string
 	var db *sql.DB
 
-	var geoPath string
-	var geo *geoip2.Reader
-
 	var port int
 	var socket string
 
@@ -74,13 +70,7 @@ func main() {
 				return
 			}
 
-			geo, err = geoip2.Open(geoPath)
-			if err != nil {
-				log.Printf("%+v", err)
-				return
-			}
-
-			sheepcount, err := NewSheepCount(db, geo, config)
+			sheepcount, err := NewSheepCount(db, config)
 			if err != nil {
 				log.Printf("%+v", err)
 				return
@@ -125,12 +115,6 @@ func main() {
 
 		},
 		PostRun: func(cmd *cobra.Command, args []string) {
-			if geo != nil {
-				if err := geo.Close(); err != nil {
-					log.Print(err)
-				}
-			}
-
 			if db != nil {
 				if _, err := db.Exec("PRAGMA optimize"); err != nil {
 					log.Print(err)
@@ -145,7 +129,6 @@ func main() {
 
 	cmd.PersistentFlags().StringVar(&configPath, "config", "sheepcount.toml", "Path to configuration file")
 	cmd.PersistentFlags().StringVar(&databasePath, "database", "sheepcount.sqlite3", "Path to database")
-	cmd.PersistentFlags().StringVar(&geoPath, "geoip-database", "GeoLite2-City.mmdb", "Path to GeoIP2 database")
 	cmd.PersistentFlags().IntVar(&port, "port", 4444, "Port to listen on")
 	cmd.PersistentFlags().StringVar(&socket, "socket", "", "Socket to listen on")
 
