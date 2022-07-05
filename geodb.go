@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/mattn/go-isatty"
 	"github.com/oschwald/geoip2-golang"
 	"github.com/schollz/progressbar/v3"
 )
@@ -32,20 +33,7 @@ type GeoIP struct {
 }
 
 func (geoip *GeoIP) Load() error {
-	if geoip.path == "" && geoip.etag == "" {
-		// Empty - let's download for the first time
-		return geoip.Update()
-	}
-
-	reader, err := geoip2.Open(geoip.path)
-	if err != nil {
-		// Could not open - let's download again
-		return geoip.Update()
-	}
-
-	geoip.reader = reader
-
-	return nil
+	return geoip.Update()
 }
 
 // Update GeoLite2 databases from https://github.com/P3TERX/GeoLite.mmdb
@@ -96,8 +84,15 @@ func (geoip *GeoIP) Update() error {
 		}
 	}
 
-	bar := progressbar.DefaultBytes(resp.ContentLength, "Downloading GeoIP database")
-	_, err = io.Copy(io.MultiWriter(f, bar), resp.Body)
+	log.Print("Downloading GeoIP database")
+
+	if isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd()) {
+		bar := progressbar.DefaultBytes(resp.ContentLength, "")
+		_, err = io.Copy(io.MultiWriter(f, bar), resp.Body)
+	} else {
+		_, err = io.Copy(f, resp.Body)
+	}
+
 	if err != nil {
 		cleanupTmpFile()
 		return fmt.Errorf("download failed: %s", err)
