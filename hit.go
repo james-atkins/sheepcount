@@ -255,10 +255,6 @@ func (hit *Hit) setPageAndReferrer(sheepcount *SheepCount, pageUrl string, refer
 		hit.ReferrerDomain = sql.NullString{String: referrerDomain, Valid: true}
 	}
 
-	if ru.Path == "" {
-		return BadInput(fmt.Errorf("invalid referrer: no path"))
-	}
-
 	// Cross-domain referrers are generally anonomised by browsers. But if we see a referrer with a
 	// path or with query parameters, then we know this is not the case.
 	// Assume that own-domain referrers are not anonomised.
