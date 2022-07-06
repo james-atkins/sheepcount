@@ -33,7 +33,20 @@ type GeoIP struct {
 }
 
 func (geoip *GeoIP) Load() error {
-	return geoip.Update()
+	if geoip.path == "" && geoip.etag == "" {
+		// Empty - let's download for the first time
+		return geoip.Update()
+	}
+
+	reader, err := geoip2.Open(geoip.path)
+	if err != nil {
+		// Could not open - let's download again
+		return geoip.Update()
+	}
+
+	geoip.reader = reader
+
+	return nil
 }
 
 // Update GeoLite2 databases from https://github.com/P3TERX/GeoLite.mmdb

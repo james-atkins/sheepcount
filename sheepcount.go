@@ -171,7 +171,7 @@ func (sheepcount *SheepCount) Run(ctx context.Context, socket net.Listener) erro
 
 	// Goroutine to keep geolocation database up-to-date
 	errgrp.Go(func() error {
-		ticker := time.NewTicker(24 * time.Hour)
+		ticker := time.NewTicker(6 * time.Hour)
 		defer ticker.Stop()
 
 		for {
