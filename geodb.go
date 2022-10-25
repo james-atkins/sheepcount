@@ -39,8 +39,9 @@ func (geoip *GeoIP) Load() error {
 	}
 
 	reader, err := geoip2.Open(geoip.path)
-	if reader == nil || err != nil {
+	if err != nil {
 		// Could not open - let's download again
+		geoip.etag = ""
 		return geoip.Update()
 	}
 
@@ -118,7 +119,7 @@ func (geoip *GeoIP) Update() error {
 	}
 
 	reader, err := geoip2.Open(f.Name())
-	if reader == nil || err != nil {
+	if err != nil {
 		cleanupTmpFile()
 		return err
 	}
