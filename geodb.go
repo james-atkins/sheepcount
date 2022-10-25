@@ -118,7 +118,7 @@ func (geoip *GeoIP) Update() error {
 	}
 
 	reader, err := geoip2.Open(f.Name())
-	if err != nil {
+	if reader == nil || err != nil {
 		cleanupTmpFile()
 		return err
 	}
