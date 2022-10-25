@@ -39,7 +39,7 @@ func (geoip *GeoIP) Load() error {
 	}
 
 	reader, err := geoip2.Open(geoip.path)
-	if err != nil {
+	if reader == nil || err != nil {
 		// Could not open - let's download again
 		return geoip.Update()
 	}
